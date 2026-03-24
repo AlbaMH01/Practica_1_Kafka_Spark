@@ -88,6 +88,7 @@ def stream_csv_to_kafka(producer: KafkaProducer, topic_name: str, csv_file: str)
             # TODO: Build kafka message
             mensaje = {
                 "schema_version": "1.0",
+                "player_id": player_id,
                 "event_id": str(uuid.uuid4()),
                 "match_id": int(match_id),
                 "session_id": session_id, 

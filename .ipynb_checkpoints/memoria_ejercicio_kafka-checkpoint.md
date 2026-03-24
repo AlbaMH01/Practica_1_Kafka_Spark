@@ -1,6 +1,6 @@
 ---
 title: "Práctica 1: Streaming de Datos Deportivos con Apache Kafka"
-author: "Alonso González Romero y Alba Martínez de la Hermosa"
+author: "Alba Martínez de la Hermosa y Alonso González Romero"
 format: 
   html:
     theme: cosmo
@@ -27,20 +27,21 @@ Para la publicación de los eventos, se ha establecido una convención de nomenc
   * **Versión (`v1`):** Es una buena práctica fundamental que permite la evolución del esquema en el futuro (por ejemplo, si se añade un sensor de temperatura corporal en la `v2`) sin romper los consumidores que dependen del formato actual.
 
 ### 2.2. Esquema de los Mensajes
-Los datos se transmiten utilizando una estructura JSON, garantizando el orden y la trazabilidad de cada evento.
+Los datos se transmiten utilizando una estructura JSON, garantizando el orden, la trazabilidad de cada evento y la portabilidad de los datos a lo largo de todo el pipeline.
 
-* **La Clave (Key):** Se ha utilizado el `player_id`. 
-  * *Motivo:* [RELLENAR: Explica con tus palabras cómo usar el ID del jugador garantiza que todas sus mediciones vayan a la misma partición y se procesen en orden estricto temporal].
-* **El Timestamp:** Se ha configurado para extraerse directamente de la columna temporal del dataset original (Event Time) convertido a milisegundos, en lugar de usar el tiempo de envío (Processing Time). Esto asegura la precisión temporal del simulador.
-* **El Valor (Value):** Estructura en formato JSON. Se ha incluido la versión del esquema y un identificador único y universal para cada evento (`event_id`) generado mediante la librería `uuid`.
+* **La Clave (Key):** Se ha utilizado el identificador del jugador (`player_id`). 
+  * *Motivo:* Al asignar una clave específica, Kafka garantiza mediante su función de *hashing* que todos los mensajes con el mismo `player_id` se enruten siempre a la misma partición dentro del tópico. Esto es crítico en arquitecturas de streaming, ya que asegura que los eventos de un mismo jugador se procesen en orden estrictamente secuencial (FIFO). Si la clave fuera nula, los mensajes se distribuirían en *Round-Robin* por todas las particiones, perdiendo la garantía de orden y arruinando los cálculos temporales posteriores.
+* **El Timestamp:** Se ha configurado para extraerse directamente de la columna temporal del dataset original (Event Time) convertido a milisegundos, en lugar de usar el tiempo en el que Kafka recibe el mensaje (Processing Time). Esto asegura la precisión temporal del simulador, incluso frente a posibles retrasos en la red.
+* **El Valor (Value):** Estructura en formato JSON. Como buena práctica de arquitectura de datos (Self-contained payload), se ha inyectado explícitamente el `timestamp` dentro del cuerpo del mensaje. De esta forma, el dato mantiene su integridad temporal incluso si posteriormente es exportado fuera del ecosistema de Kafka (por ejemplo, a un Data Lake). Adicionalmente, se ha incluido la versión del esquema y un identificador único y universal para cada evento (`event_id`) generado mediante la librería `uuid`.
 
 **Ejemplo del Payload:**
 ```json
 {
-  "schema_version": "v1",
-  "event_id": "123e4567-e89b-12d3-a456-426614174000",
+  "schema_version": "1.0",
+  "event_id": "c1b52a36-3b49-410a-b31f-0e24106512eb",
   "match_id": 1,
   "session_id": "match_1",
+  "timestamp": 1711209600000,
   "bpm": 145,
   "pos_x": 45.2,
   "pos_y": 34.1,
@@ -49,7 +50,7 @@ Los datos se transmiten utilizando una estructura JSON, garantizando el orden y 
 }
 ```
 
----
+
 
 ## 3. Guía de Despliegue y Ejecución
 
