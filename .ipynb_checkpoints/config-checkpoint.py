@@ -1,0 +1,1 @@
+TOPIC_FATIGA = "futbol.partidos.sensores_fatiga.v1"

@@ -11,6 +11,7 @@ import json
 import time
 import uuid
 from datetime import datetime
+from config import TOPIC_FATIGA
 
 
 def random_delay(index: int, base_delay: float) -> float:
@@ -85,8 +86,26 @@ def stream_csv_to_kafka(producer: KafkaProducer, topic_name: str, csv_file: str)
             acceleration_ms2 = float(row['aceleracion_m_s2'])
 
             # TODO: Build kafka message
-
+            mensaje = {
+                "schema_version": "1.0",
+                "event_id": str(uuid.uuid4()),
+                "match_id": int(match_id),
+                "session_id": session_id, 
+                "timestamp" : event_timestamp_ms,
+                "bpm": bpm,
+                "pos_x": pos_x,
+                "pos_y": pos_y,
+                "speed_kmh": speed_kmh, 
+                "acceleration_ms2": acceleration_ms2
+            }
+            
             # TODO: Send message to Kafka
+            producer.send(
+                topic = topic_name, 
+                key = player_id.encode('utf-8'), 
+                value = mensaje,
+                timestamp_ms = event_timestamp_ms
+            )
 
         print(f"Sent {idx}/{grouped.ngroups}")
         time.sleep(random_delay(idx - 1, base_delay=5))
@@ -96,10 +115,10 @@ def stream_csv_to_kafka(producer: KafkaProducer, topic_name: str, csv_file: str)
 
 if __name__ == "__main__":
     # Path to the CSV file containing the telemetry data
-    csv_file = "sensores_deportivos_fatiga_fixed.csv"
+    csv_file = "sensores_deportivos_fatiga.csv"
 
     # TODO: Define the topic name for Kafka producer
-    topic = ""
+    topic = TOPIC_FATIGA
 
     print("Starting Kafka Producer")
     producer = create_producer()
