@@ -1,0 +1,233 @@
+---
+title: "Apache Kafka y Spark Structured Streaming"
+subtitle: |
+  Sensores de fatiga en deportistas <br><br>
+  <b>Práctica 1</b> <br>
+  Asignatura: Big Data Processing II <br>
+  Universidad Rey Juan Carlos (MUSA)
+author:
+  - "Alba Martínez de la Hermosa"
+  - "Alonso González Romero"
+date: last-modified
+date-format: "D [de] MMMM, YYYY"
+format: 
+  html:
+    theme: cosmo
+    css: style.css
+    title-block-banner: true
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenido"
+    number-sections: true
+    embed-resources: true
+    code-fold: true
+    code-summary: "Ver código"
+    fig-cap-location: bottom
+    tbl-cap-location: top
+lang: es
+keywords: ["Spark","Kafka","Sports Analytics"]
+abstract: |
+  En este documento se encuentran las memorias explicativas de las dos partes de las que consta la Práctica 1 de la asignatura Big Data Processing II.
+execute: 
+  warning: false
+  echo: true
+---
+
+# Introducción
+
+El análisis de datos en tiempo real en el deporte se ha convertido en una herramienta fundamental para evaluar el rendimiento, la fatiga y el estado de cada jugador en cada instante. La monitorización constante de los jugadores durante un partido permite al cuerpo técnico tomar decisiones informadas al instante, optimizando el rendimiento y previniendo lesiones derivadas de la fatiga extrema.
+
+El objetivo de esta practica es implementar una arquitectura de *Big Data* para procesar datos sobre sensores en jugadores y poder tanto visualizar como calcular algunas métricas sobre los datos en directo . Para simular este flujo de datos en tiempo real se dispone del conjunto de datos `sensores_deportivos_fatiga.csv`. Este archivo contiene registros simulados pertenecientes a 15 jugadores a lo largo de 3 partidos de fútbol distintos, con mediciones de alta frecuencia capturadas cada 5 segundos. Las variables contenidas en el conjunto de datos son las siguientes: 
+
+* **`partido_id`**: Identificador único del encuentro (1, 2, o 3).
+* **`time`**: Marca temporal de la medición en formato estándar ISO 8601.
+* **`jugador_id`**: Identificador numérico del jugador (1 a 15).
+* **`pos_x`**: Posición longitudinal del jugador en el campo (0 a 100 metros).
+* **`pos_y`**: Posición transversal del jugador en el campo (0 a 60 metros).
+* **`aceleracion_m_s2`**: Aceleración instantánea del jugador, medida en metros por segundo al cuadrado.
+* **`frecuencia_cardiaca_bpm`**: Frecuencia cardíaca registrada en latidos por minuto (BPM).
+
+A lo largo de los siguientes apartados se describirán los conceptos pedidos en la rúbrica de evaluación.
+
+---
+
+# Apache Kafka
+
+## Diseño del Topic
+
+El diseño del Topic ha sido el siguiente:
+
+* **Nombre del Topic:** `futbol.partidos.sensores_fatiga.v1`
+* **Justificación:** Se ha seguido el patrón de convención de nombres jerárquico estándar `dominio.subdominio.tipo.version` para garantizar la organización, escalabilidad y mantenibilidad del canal de mensajes. La elección se basa en:
+  * **Dominio (`futbol`):** Define el área de negocio o macro-categoría principal.
+  * **Subdominio (`partidos`):** Establece el contexto de recolección de los datos, separándolos claramente de otras sesiones como `entrenamientos` o `pruebas_medicas`.
+  * **Tipo (`sensores_fatiga`):** Identifica el evento específico y la naturaleza de las mediciones (coordenadas, velocidad, aceleración y ritmo cardíaco).
+  * **Versión (`v1`):** Es una buena práctica fundamental que permite la evolución del esquema en el futuro (por ejemplo, si se añade un sensor de temperatura corporal en la `v2`) sin romper los consumidores que dependen del formato actual.
+
+
+::: {.callout-note}
+**Nota:** El nombre del *topic* se ha volcado en el archivo de configuración `config.py` (almacenado en la variable `TOPIC_FATIGA`). En cada script, se importa dicha variable para usarlo. 
+:::
+
+
+## Esquema de los Mensajes
+Los datos se transmiten utilizando una estructura JSON, junto con una clave y un timestamp necesarios para organizar la llegada de datos en Kafka:
+
+* **Key:** Se ha utilizado el identificador del jugador (`player_id`). 
+  * *Motivo:* Kafka organiza sus topics en particiones usando *Append-Only Log*. Al designar el ID del jugador como Key, el algoritmo de *hashing* asegura que todos los eventos de un mismo futbolista se enruten siempre a la misma partición. Esto garantiza un procesamiento secuencial estricto, requisito indispensable para calcular métricas temporales complejas como la aceleración o la fatiga sin que los registros se desordenen. 
+
+* **Timestamp:** El tiempo del evento se inyecta en milisegundos a través del parámetro `timestamp_ms`. Esto evita depender del momento de recepción en el clúster (Processing Time), asegurando que la simulación refleje fielmente la cronología. Para la integración con Spark, el *producer* inyecta el *timestamp* del sistema en el momento del envío para simular un directo real.
+
+* **Value:** La carga útil se estructura en formato JSON siguiendo el principio de diseño de *Self-contained payload* (carga útil autocontenida). Por ello, tanto el `player_id` como el `timestamp` se han duplicado explícitamente dentro del cuerpo del mensaje. Esto asegura que el evento mantenga todo su contexto analítico en caso de ser exportado fuera del ecosistema de Kafka. Adicionalmente, se incluye la versión del esquema y un identificador único y universal (`event_id`) generado mediante la librería `uuid` para evitar la duplicidad de registros.
+
+**Ejemplo del Payload:**
+```json
+{
+  "schema_version": "1.0",
+  "player_id": "player_5",
+  "event_id": "c1b52a36-3b49-410a-b31f-0e24106512eb",
+  "match_id": 1,
+  "session_id": "match_1",
+  "timestamp": 1711209600000,
+  "bpm": 145,
+  "pos_x": 45.2,
+  "pos_y": 34.1,
+  "speed_kmh": 21.5,
+  "acceleration_ms2": 1.2
+}
+```
+
+---
+
+## Guía de instalación y ejecución
+
+
+En el archivo zip adjuntado, podemos observar los siguientes archivos necesarios para instalar y ejecutar la arquitectura Kafka: 
+
+* `docker-compose.yml`
+* `producer.py`
+* `consumer_print.py` / `consumer_alert.py`
+
+Para levantar el ecosistema completo con Kafka y el contenedor de Jupyter con PySpark, abre una terminal en la raíz del proyecto y ejecuta el orquestador de Docker:
+
+```bash
+docker-compose up -d
+```
+
+1. Abre tu navegador web y accede a la interfaz de Jupyter: `http://localhost:8888`.
+
+    ![Visualización del navegador al introducir el paso explicado](imagenes_proyecto/imagen_localhost.png){fig-align="center" width=80%}
+
+2. Desde la interfaz gráfica, abre una nueva terminal integrada y prepara el entorno Python instalando las librerías base para la inyección de datos:
+
+    ![Terminal abierta](imagenes_proyecto/imagen_terminal.png){fig-align="center" width=80%}
+
+   ```bash
+   pip install kafka-python pandas
+   ```
+
+
+Para observar la arquitectura de mensajería operando en tiempo real de forma nativa:
+
+1. Abre **tres terminales independientes** dentro de Jupyter.
+
+    ![Tres terminales abiertas](imagenes_proyecto/imagen_terminales.png){fig-align="center" width=80%}
+
+2. Lanza los scripts para iniciar la escucha de eventos y la inyección:
+   * **Terminal 1 (Monitor):** `python consumer_print.py`
+   * **Terminal 2 (Alertas):** `python consumer_alert.py`
+   * **Terminal 3 (Ingesta):** `python producer.py`
+
+*(Nota: Para detener cualquier proceso y liberar los recursos, pulsa `Ctrl + C` en su terminal correspondiente).*
+
+A continuación, se adjunta un vídeo en el que se puede ver la arquitectura funcionando:
+
+{{< video https://youtu.be/tyMxOvUj8Wo >}}
+
+---
+
+
+
+# Spark Structured Streaming
+
+## Esquema para deserializar el JSON y transformaciones 
+
+Se ha implementado el siguiente esquema correspondiente al contenido de los mensajes utilizando la clase `StructType` de PySpark:
+
+```python
+schema = StructType([
+    StructField("schema_version", StringType(), True),
+    StructField("player_id", StringType(), True),
+    StructField("event_id", StringType(), True),
+    StructField("match_id", IntegerType(), True),
+    StructField("session_id", StringType(), True),
+    StructField("timestamp", DoubleType(), True), 
+    StructField("bpm", IntegerType(), True),
+    StructField("pos_x", DoubleType(), True),
+    StructField("pos_y", DoubleType(), True),
+    StructField("speed_kmh", DoubleType(), True),
+    StructField("acceleration_ms2", DoubleType(), True)
+])
+```
+
+El contenido de los mensajes viene codificado en formato binario. El proceso de deserialización y adecuación realizado es el siguiente: 
+
+```python
+events = (
+    df.selectExpr("CAST(value AS STRING) AS json_str")
+      .select(F.from_json(F.col("json_str"), schema).alias("data"))
+      .select("data.*")
+)
+events_with_time = events.withColumn(
+    "event_time",
+    F.to_timestamp(F.col("timestamp") / 1000)
+)
+```
+
+Se utiliza la expresión recomendada en el enunciado para traducir los bytes crudos a una cadena JSON legible. Posteriormente, se aplica la función `from_json` junto al esquema definido para extraer los campos. Tras ello, y como la función de agregación de Spark requiere un dato de tipo `TimestampType`, se crea la columna `event_time` dividiendo el valor para convertir milisegundos en segundos. 
+
+
+## Consultas. Agregaciones y Ventanas
+
+La consulta implementada contiene: 
+
+* Watermark de 2 minutos, que indica a Spark que debe esperar hasta 2 minutos a eventos antes de cerrar la ventana y descargar esos datos. 
+* Ventanas deslizantes en marcos de 60 segundos que se solapan y avanzan cada 30 segundos. 
+* Agrupación por ventana, partido y jugador, y cálculo de la media, desviación estándar y valor máximo del ritmo cardiaco, redondeando los decimales
+
+```python
+aggregated_df = (
+    events_with_time
+    .withWatermark("event_time", "2 minutes") 
+    .groupBy(
+        F.window("event_time", "1 minute", "30 seconds"), 
+        "match_id", 
+        "player_id"
+    )
+    .agg(
+        F.count("*").alias("numero_eventos"),
+        F.round(F.avg("bpm"), 2).alias("fc_media"),
+        F.round(F.stddev("bpm"), 2).alias("fc_std_dev"),
+        F.max("bpm").alias("fc_maxima")
+    )
+)
+```
+
+## Requisitos de Entorno y Guía de Ejecución
+
+La forma de levantar el Docker y abrir el proyecto en el navegador es idéntica a la del apartado de Kafka. 
+
+A partir de aquí, para ejecutar el procesamiento en ventanas temporales se debe: 
+
+1. Ejecutar el script `producer.py` en una terminal. 
+2. Abrir el archivo ``spark_streaming.ipynb`
+3. Selecciona **Kernel > Restart & Clear Output** para asegurar un entorno de memoria limpio.
+4. Ejecuta las celdas secuencialmente (o dale a *Run All*). 
+5. Las tablas con las agregaciones en tiempo real comenzarán a imprimirse debajo de la última celda. Alternativamente, puedes visualizar el flujo de salida sin recortes ejecutando en una terminal de tu máquina: `docker compose logs -f jupyter`.
+
+
+A continuación, se muestra un vídeo de cómo realizar todo el proceso desde 0. 
+
+{{< video https://youtu.be/MAYCE8xv_JU >}}
+
+

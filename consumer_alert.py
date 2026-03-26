@@ -18,11 +18,10 @@ def leer_datos(consumer):
             bpm = data.get('bpm')
             speed = data.get('speed_kmh')
         
-            if bpm is not None and speed is not None:
-                if bpm > 180 and speed < 10:
-                    print(40 * "-")
-                    print(f"🚨Alert!!! Player{data.get('player_id')} has {data.get('bpm')} bpm at {data.get('speed_kmh')} km/h.")
-                    print(40 * "-")
+            if bpm is not None and speed is not None and bpm > 180 and speed < 10:
+                print(40 * "-")
+                print(f"🚨 ALERTA: El jugador {data.get('player_id')} tiene {bpm} BPM a solo {speed} km/h.")
+                print(40 * "-")
 
     except KeyboardInterrupt:
         print("Consumer manually interrupted")
